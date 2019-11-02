@@ -6,42 +6,56 @@
 
 local INITIAL = 0
 local PRESSED = 1
-local COOLED_DOWN = 2
-local RELEASED = 3
+local RELEASED = 2
 local KEY_COUNT = 3
-local symbols = {"d", "c", "u"}
+local symbols = {"d", "u"}
+local coldKeys = {}
+for i = 1, KEY_COUNT do
+  coldKeys[i] = false
+end
+
 
 function stateIsFinal(state)
   for i = 1, KEY_COUNT do
-    if state[i] == PRESSED or state[i] == COOLED_DOWN then
+    if state[i] == PRESSED then
       return false
     end
   end
-  if state[1] == RELEASED and state[2] == RELEASED then
-    return true
+  return true
+end
+
+
+function countHotKeys(state)
+  local n = 0
+  for i = 1, KEY_COUNT do
+    if state.hotKeys[i] then
+      n = n + 1
+    end
   end
-  return false
+  return n
 end
 
 
 function getChangedState(state, component, newEvent)
   local newState = {
-    events = state.events..";"..component..symbols[newEvent],
-    nextCooldown = state.nextCooldown,
+    events = state.events.." "..component..symbols[newEvent],
+    nextKey = math.max(state.nextKey, component + 1),
+    hotKeys = {unpack(state.hotKeys)},
     unpack(state)
   }
   newState[component] = newEvent
-  if newEvent == PRESSED then
-    newState.nextCooldown = component
-  else
-    for i = component + 1, KEY_COUNT do
-      newState.nextCooldown = i
-      if newState[i] == PRESSED then
-        break
-      end
-    end
-  end
+  newState.hotKeys[component] = newEvent == PRESSED
   return newState
+end
+
+
+function getCooledDownEvent(state)
+  return {
+    events = state.events.." cc",
+    nextKey = state.nextKey,
+    hotKeys = {unpack(coldKeys)},
+    unpack(state)
+  }
 end
 
 
@@ -55,32 +69,26 @@ function nextEvents(state, indent)
 
   nextIndent = indent.." "
 
-  for i = 1, KEY_COUNT do
-    if state[i] == INITIAL then
-      nextEvents(getChangedState(state, i, PRESSED), nextIndent)
-    elseif state[i] == PRESSED then
-      if state.nextCooldown == i then
-        nextEvents(getChangedState(state, i, COOLED_DOWN), nextIndent)
-      -- else
-      --   local invalidState = getChangedState(state, i, COOLED_DOWN)
-      --   invalidState.events = "_"..invalidState.events
-      --   nextEvents(invalidState)
-      end
-      nextEvents(getChangedState(state, i, RELEASED), nextIndent)
-    elseif state[i] == COOLED_DOWN then
-      nextEvents(getChangedState(state, i, RELEASED), nextIndent)
+  if countHotKeys(state) > 0 then
+    nextEvents(getCooledDownEvent(state), nextIndent)
+  end
+  for i = 1, math.min(state.nextKey, KEY_COUNT) do
+    if state[i] < RELEASED then
+      nextEvents(getChangedState(state, i, state[i] + 1), nextIndent)
     end
   end
 end
 
 local initialEvent = {
-  events = "1d;2d",
-  nextCooldown = 2,
-  PRESSED, PRESSED
+  events = "1d",
+  nextKey = 2,
+  hotKeys = {true},
+  PRESSED,
 }
 
-for i = 3, KEY_COUNT do
+for i = 2, KEY_COUNT do
   initialEvent[i] = INITIAL
+  initialEvent.hotKeys[i] = false
 end
 
 nextEvents(initialEvent, "")
