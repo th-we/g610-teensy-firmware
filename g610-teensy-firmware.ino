@@ -19,9 +19,9 @@ int keymap[ROW_COUNT][COL_COUNT] = {
 
 
 void setup() {
-  Serial.begin(38400);
+  /*Serial.begin(38400);
   while (!Serial) {}
-  Serial.println("Start");
+  Serial.println("Start");*/
   for (int r = 0; r < ROW_COUNT; r++) {
     pinMode(r + ROW_MIN, OUTPUT);
     for (int c = 0; c <= COL_COUNT; c++) {
@@ -33,33 +33,82 @@ void setup() {
 }
 
 
-// boolean debounced[ROW_COUNT][COL_COUNT] = {true};
 boolean downState[ROW_COUNT][COL_COUNT] = {false};
-// boolean debouncing = false;
-// unsigned long debounceStart;
+
+#define CHORD_COOLDOWN 100
+unsigned long chordCooldownStart = millis();
+// Chord bitmasks for ASCII letter keys A-Z
+unsigned long activeChord = 0;
+int activeChordCode = 0;
+unsigned long emergingChord = 0;
+unsigned char chordKeyCount = 0;
+unsigned lastChordKeycode = 0;
+int lastKeycode = 0;
+
+
+/**
+ * @return keycode the chord is translated to
+ */
+int getChordKey() {
+  if (chordKeyCount == 0) {
+    return 0;
+  }
+  if (chordKeyCount == 1) {
+    return lastChordKeycode;
+  }
+
+  switch (emergingChord) {
+    case 1UL << (KEY_J - KEY_A) | 1UL << (KEY_I - KEY_A):
+      return KEY_SLASH;
+    default:
+      return 0;
+  }
+}
+
+
+static inline boolean chordCooledDown() {
+  return abs(millis() - chordCooldownStart) >= CHORD_COOLDOWN;
+}
+
 
 void loop() {
-  /*if (debouncing && abs(millis() - debounceStart) > 20) {
-    debouncing = false;
-  }*/
+  if (emergingChord != activeChord && chordCooledDown()) {
+    if (activeChordCode != 0) {
+      Keyboard.release(activeChordCode);
+      // TODO: Reset key buffer
+    }
+    activeChordCode = getChordKeycode(chord);
+    if (activeChordCode != 0) {
+      Keyboard.press(activeChordCode);
+    }
+  }
   for (int r = 0; r < ROW_COUNT; r++) {
     digitalWrite(r + ROW_MIN, LOW);
     for (int c = 0; c < COL_COUNT; c++) {
-      //int code = keymap[r][c];
-      boolean down = digitalRead(c + COL_MIN) == LOW;
+      int code = keymap[r][c];
+      boolean down = code && (digitalRead(c + COL_MIN) == LOW);
       if (down != downState[r][c]) {
         /*Serial.print(r);
         Serial.print(", ");
         Serial.print(c);
         Serial.print(down ? " down" : " up");
         Serial.println();*/
-        int code = keymap[r][c];
-        down ? Keyboard.press(code) : Keyboard.release(code);
-        //delay(1); // tiny delay after each low read to avoid false positives on subsequent rows
+        if (code >= KEY_A && code <= KEY_Z) {
+          // Toggle the key's bit in the chord mask
+          emergingChord ^= 1UL << (code - KEY_A);
+          chordCooldownStart = millis();
+          chordKeyCount += (down ? 1 : -1);
+          if (down) {
+            // TODO: Change this to a key (ring?)buffer
+            lastChordKeycode = code;
+          }
+        } else {
+          down ? Keyboard.press(code) : Keyboard.release(code);
+        }
         downState[r][c] = down;
       }
     }
     digitalWrite(r + ROW_MIN, HIGH);
-    delay(1); // tiny delay to avoid false positives
+    delay(1); // If we don't have a delay here, random keys fire constantly (unrelated to debouncing).
   }
 }
