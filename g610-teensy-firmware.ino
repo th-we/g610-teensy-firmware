@@ -3,6 +3,8 @@
 #define ROW_COUNT 9
 #define COL_MIN 14
 #define COL_COUNT 16
+// 40ms seems like a lot, but 20ms still produced double key presses
+#define BOUNCE_MILLIS 40
 #include "keylayouts.h"
 
 int keymap[ROW_COUNT][COL_COUNT] = {
@@ -31,23 +33,35 @@ void setup() {
 
 
 boolean downState[ROW_COUNT][COL_COUNT] = {false};
+boolean bounceState[ROW_COUNT][COL_COUNT] = {false};
+unsigned long bounceStart = 0;
+
 
 void loop() {
   for (int r = 0; r < ROW_COUNT; r++) {
     digitalWrite(r + ROW_MIN, LOW);
     for (int c = 0; c < COL_COUNT; c++) {
       boolean down = digitalRead(c + COL_MIN) == LOW;
-      if (down != downState[r][c]) {
+      if (bounceState[r][c]) {
+        unsigned long time = millis();
+        // check for millis < bounceStart in case timer overflows
+        if (time < bounceStart) {
+          bounceStart = 0;
+        }
+        if (time >= bounceStart + BOUNCE_MILLIS) {
+          bounceState[r][c] = false;
+        }
+      } else if (down != downState[r][c]) {
         int code = keymap[r][c];
         down ? Keyboard.press(code) : Keyboard.release(code);
         downState[r][c] = down;
+        bounceState[r][c] = true;
+        bounceStart = millis();
       }
     }
     digitalWrite(r + ROW_MIN, HIGH);
     delay(1); // tiny delay to avoid false keypress
     // Without the delay, seemingly random keys fire.
     // Wild guess: This might be due to capacitance in the system.
-    // This delay also seems enough to take care of debouncing,
-    // at least with switches that are not worn out yet.
   }
 }
